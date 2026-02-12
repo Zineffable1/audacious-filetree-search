@@ -11,3 +11,6 @@ I haven't figured out how to keep the last track playing when the playlist chang
 I made this on Arch Linux (KDE Plasma 6 Wayland), all I had to do was copy the filetree-search-qt.so file to /usr/lib/audacious/General/ and enable the plugin.
 e.g.(Running a terminal from the same folder as the .so file) sudo cp filetree-search-qt.so /usr/lib/audacious/General/
 Not sure how this will go for other users.
+
+
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/318f79c6-ee60-48bc-855f-4480f7ea59e2" />
