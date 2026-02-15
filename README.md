@@ -7,7 +7,7 @@ Made to work with https://github.com/Zineffable1/audacious-widget
 It creates a searchable filetree that updates the current playlist (bar the Library playlist) as you single click on folders  
 Folders can be double clicked to expand/collapse or the user can single click the arrows.  
 
-I haven't figured out how to keep the last track playing when the playlist changes - I hope someone does.  
+Made a seperate playlist called Browser, this is what updates when you select items from the filetree, so you can now keep playing music while looking through your library.  
 
 
 I made this on Arch Linux (KDE Plasma 6 Wayland), all I had to do was copy the filetree-search-qt.so file to /usr/lib/audacious/General/ and enable the plugin.  
@@ -15,4 +15,5 @@ e.g.(Running a terminal from the same folder as the .so file) sudo cp filetree-s
 Not sure how this will go for other users.  
 
 
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/318f79c6-ee60-48bc-855f-4480f7ea59e2" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/f9e2bb94-18d0-408d-895c-16299b6977c4" />
+
