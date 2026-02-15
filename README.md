@@ -10,10 +10,5 @@ Folders can be double clicked to expand/collapse or the user can single click th
 Made a seperate playlist called Browser, this is what updates when you select items from the filetree, so you can now keep playing music while looking through your library.  
 
 
-I made this on Arch Linux (KDE Plasma 6 Wayland), all I had to do was copy the filetree-search-qt.so file to /usr/lib/audacious/General/ and enable the plugin.  
-e.g.(Running a terminal from the same folder as the .so file) sudo cp filetree-search-qt.so /usr/lib/audacious/General/  
-Not sure how this will go for other users.  
-
-
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/f9e2bb94-18d0-408d-895c-16299b6977c4" />
 
