@@ -26,7 +26,13 @@
 
 static QString create_item_label (const Item & item)
 {
-    QString string = start_tags[item.field];
+    QString string;
+    
+    // Add folder icon for directories (non-Title items)
+    if (item.field != SearchField::Title)
+        string += "📁 ";
+    
+    string += start_tags[item.field];
 
     // Only uppercase if it's actually a Genre field (from old search, not folder names)
     if (item.field == SearchField::Genre && item.parent == nullptr)
@@ -36,22 +42,21 @@ static QString create_item_label (const Item & item)
 
     string += end_tags[item.field];
 
-#ifdef Q_OS_MAC  // Mac-specific font tweaks
-    string += "<br>&nbsp;";
-#else
-    string += "<br><small>&nbsp;";
-#endif
+    // Build the extra info first to see if we need the br tag
+    QString extra_info;
+    bool has_extra = false;
 
     if (item.field != SearchField::Title)
     {
         // Only show song count for items that actually have songs
         if (item.matches.len() > 0)
         {
-            string += str_printf (dngettext (PACKAGE, "%d song", "%d songs",
+            extra_info += str_printf (dngettext (PACKAGE, "%d song", "%d songs",
              item.matches.len ()), item.matches.len ());
+            has_extra = true;
 
             if (item.field == SearchField::Genre || item.parent)
-                string += ' ';
+                extra_info += ' ';
         }
     }
 
@@ -59,22 +64,35 @@ static QString create_item_label (const Item & item)
     {
         // Only show "of this genre" if it actually has matches (not a folder)
         if (item.matches.len() > 0)
-            string += _("of this genre");
+        {
+            extra_info += _("of this genre");
+            has_extra = true;
+        }
     }
     else if (item.parent)
     {
         auto parent = (item.parent->parent ? item.parent->parent : item.parent);
 
-        string += parent_prefix (parent->field);
-        string += ' ';
-        string += start_tags[parent->field];
-        string += QString (parent->name).toHtmlEscaped ();
-        string += end_tags[parent->field];
+        extra_info += parent_prefix (parent->field);
+        extra_info += ' ';
+        extra_info += start_tags[parent->field];
+        extra_info += QString (parent->name).toHtmlEscaped ();
+        extra_info += end_tags[parent->field];
+        has_extra = true;
     }
 
-#ifndef Q_OS_MAC  // Mac-specific font tweaks
-    string += "</small>";
+    // Only add br and extra info if there's something to show
+    if (has_extra)
+    {
+#ifdef Q_OS_MAC
+        string += "<br>";
+        string += extra_info;
+#else
+        string += "<br><small>";
+        string += extra_info;
+        string += "</small>";
 #endif
+    }
 
     return string;
 }

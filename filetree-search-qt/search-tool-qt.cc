@@ -36,6 +36,8 @@
 #include <libaudcore/preferences.h>
 #include <libaudcore/mainloop.h>
 #include <libaudcore/runtime.h>
+#include <libaudcore/interface.h>
+#include <libaudcore/hook.h>
 #include <libaudqt/libaudqt.h>
 #include <libaudqt/treeview.h>
 
@@ -66,6 +68,9 @@ public:
     bool init () override;
     void * get_qt_widget () override;
     int take_message (const char * code, const void *, int) override;
+
+private:
+    static void window_closed (void * data, void * user_data);
 };
 
 EXPORT SearchToolQt aud_plugin_instance;
@@ -138,6 +143,8 @@ private:
     Library m_library;
     SearchModel m_model;
     HtmlDelegate m_delegate;
+    
+    Playlist m_browser_playlist;  // Dedicated Browser playlist
 
     SmartPtr<QFileSystemWatcher> m_watcher;
     QStringList m_watcher_paths;
@@ -146,7 +153,6 @@ private:
     bool m_search_pending = false;
     
     QueuedFunc m_click_timer;
-    QModelIndex m_last_clicked_index;
 
     QLabel m_help_label, m_wait_label, m_stats_label;
     SearchEntry m_search_entry;
@@ -161,6 +167,7 @@ static QPointer<SearchWidget> s_widget;
 const char * const SearchToolQt::defaults[] = {
     "rescan_on_startup", "FALSE",
     "monitor", "FALSE",
+    "close_to_tray", "FALSE",
     nullptr
 };
 
@@ -168,7 +175,9 @@ const PreferencesWidget SearchToolQt::widgets[] = {
     WidgetCheck (N_("Rescan library at startup"),
         WidgetBool (CFG_ID, "rescan_on_startup")),
     WidgetCheck (N_("Monitor library for changes"),
-        WidgetBool (CFG_ID, "monitor", [] () { s_widget->reset_monitor (); }))
+        WidgetBool (CFG_ID, "monitor", [] () { s_widget->reset_monitor (); })),
+    WidgetCheck (N_("Close to the system tray"),
+        WidgetBool (CFG_ID, "close_to_tray"))
 };
 
 const PluginPreferences SearchToolQt::prefs = {{widgets}};
@@ -258,7 +267,6 @@ SearchWidget::SearchWidget () :
     QObject::connect (& m_results_list, & QTreeView::clicked, this, & SearchWidget::on_item_clicked);
     QObject::connect (& m_results_list, & QTreeView::doubleClicked, this, [this] (const QModelIndex &) {
         m_click_timer.stop();
-        m_last_clicked_index = QModelIndex();
     });
 
     QObject::connect (& m_results_list, & QWidget::customContextMenuRequested,
@@ -269,6 +277,24 @@ SearchWidget::SearchWidget () :
 
     QObject::connect (m_file_entry, & QLineEdit::returnPressed, this, & SearchWidget::location_changed);
     QObject::connect (& m_refresh_btn, & QPushButton::clicked, this, & SearchWidget::location_changed);
+    
+    // Find or create Browser playlist
+    m_browser_playlist = Playlist ();
+    for (int p = 0; p < Playlist::n_playlists (); p ++)
+    {
+        auto playlist = Playlist::by_index (p);
+        if (! strcmp (playlist.get_title (), "Browser"))
+        {
+            m_browser_playlist = playlist;
+            break;
+        }
+    }
+    
+    if (! m_browser_playlist.exists ())
+    {
+        m_browser_playlist = Playlist::blank_playlist ();
+        m_browser_playlist.set_title ("Browser");
+    }
 }
 
 void SearchWidget::init_library ()
@@ -501,13 +527,8 @@ void SearchWidget::action_add_to_playlist ()
 
 void SearchWidget::on_item_clicked (const QModelIndex & index)
 {
-    // Don't load into playlist if the Library playlist is already active
-    auto active_list = Playlist::active_playlist ();
-    if (active_list == m_library.playlist ())
-        return;
-    
-    // Queue the load after a short delay
-    m_last_clicked_index = index;
+    // Always queue the load regardless of which playlist is active
+    // We'll load into the Browser playlist
     m_click_timer.queue(200, [this] { on_item_load_timer(); });
 }
 
@@ -515,17 +536,17 @@ void SearchWidget::on_item_load_timer ()
 {
     auto list = m_library.playlist ();
     Index<PlaylistAddItem> add;
-    const QModelIndex index = m_last_clicked_index;
-    m_last_clicked_index = QModelIndex();
     
-    if (!index.isValid())
+    // Get ALL selected indexes instead of just the last clicked one
+    QModelIndexList selected = m_results_list.selectionModel()->selectedRows();
+    
+    if (selected.isEmpty())
         return;
     
-    const Item * item = m_model.item_at_index(index);
-    if (!item || item->children.n_items() == 0)
-        return;
+    // Use QSet to track unique entry indexes and avoid duplicates
+    QSet<int> seen_entries;
     
-    // Recursively collect all files in this folder and subfolders
+    // Recursively collect all files in folders and subfolders
     std::function<void(const Item *)> collect_files = [&](const Item * folder) {
         // Get children and sort them
         Index<Item *> children;
@@ -542,14 +563,18 @@ void SearchWidget::on_item_load_timer ()
         {
             if (child->field == SearchField::Title && child->matches.len() > 0)
             {
-                // This is a file
+                // This is a file - add each entry if not already seen
                 for (int entry : child->matches)
                 {
-                    add.append (
-                        list.entry_filename (entry),
-                        list.entry_tuple (entry, Playlist::NoWait),
-                        list.entry_decoder (entry, Playlist::NoWait)
-                    );
+                    if (!seen_entries.contains(entry))
+                    {
+                        seen_entries.insert(entry);
+                        add.append (
+                            list.entry_filename (entry),
+                            list.entry_tuple (entry, Playlist::NoWait),
+                            list.entry_decoder (entry, Playlist::NoWait)
+                        );
+                    }
                 }
             }
             else if (child->children.n_items() > 0)
@@ -560,13 +585,48 @@ void SearchWidget::on_item_load_timer ()
         }
     };
     
-    collect_files(item);
+    // Process each selected index
+    for (const QModelIndex & index : selected)
+    {
+        if (!index.isValid())
+            continue;
+        
+        const Item * item = m_model.item_at_index(index);
+        if (!item)
+            continue;
+        
+        // Check if this is a file or a folder
+        if (item->field == SearchField::Title && item->matches.len() > 0)
+        {
+            // This is a single file - add it directly
+            for (int entry : item->matches)
+            {
+                if (!seen_entries.contains(entry))
+                {
+                    seen_entries.insert(entry);
+                    add.append (
+                        list.entry_filename (entry),
+                        list.entry_tuple (entry, Playlist::NoWait),
+                        list.entry_decoder (entry, Playlist::NoWait)
+                    );
+                }
+            }
+        }
+        else if (item->children.n_items() > 0)
+        {
+            // This is a folder - recursively collect all files
+            collect_files(item);
+        }
+    }
     
     if (add.len() > 0)
     {
-        auto list2 = Playlist::active_playlist ();
-        list2.remove_all_entries ();
-        list2.insert_items (-1, std::move (add), false);
+        // Always update the Browser playlist, never the active one
+        m_browser_playlist.remove_all_entries ();
+        m_browser_playlist.insert_items (-1, std::move (add), false);
+        
+        // Optionally activate the Browser playlist
+        m_browser_playlist.active_playlist ();
     }
 }
 
@@ -593,9 +653,21 @@ void SearchWidget::show_context_menu (const QPoint & global_pos)
     menu->popup (global_pos);
 }
 
+void SearchToolQt::window_closed (void * data, void * user_data)
+{
+    bool * handled = (bool *) data;
+
+    if (aud_get_bool (CFG_ID, "close_to_tray"))
+    {
+        * handled = true;
+        aud_ui_show (false);
+    }
+}
+
 bool SearchToolQt::init ()
 {
     aud_config_set_defaults (CFG_ID, defaults);
+    hook_associate ("window close", window_closed, nullptr);
     return true;
 }
 

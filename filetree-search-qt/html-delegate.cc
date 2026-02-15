@@ -28,7 +28,7 @@
 static void init_text_document (QTextDocument & doc, const QStyleOptionViewItem & option)
 {
     doc.setHtml (option.text);
-    doc.setDocumentMargin (audqt::sizes.TwoPt);
+    doc.setDocumentMargin (0);
     doc.setDefaultFont (option.font);
 }
 
@@ -80,4 +80,3 @@ QSize HtmlDelegate::sizeHint (const QStyleOptionViewItem & option_,
 
     return QSize (audqt::sizes.OneInch, doc.size ().height ());
 }
-
