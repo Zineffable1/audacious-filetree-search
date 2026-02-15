@@ -509,7 +509,6 @@ void SearchWidget::do_add (bool play, bool set_title)
 
 void SearchWidget::action_play ()
 {
-    Playlist::temporary_playlist ().activate ();
     do_add (true, false);
 }
 
@@ -625,8 +624,8 @@ void SearchWidget::on_item_load_timer ()
         m_browser_playlist.remove_all_entries ();
         m_browser_playlist.insert_items (-1, std::move (add), false);
         
-        // Optionally activate the Browser playlist
-        m_browser_playlist.active_playlist ();
+        // Activate the Browser playlist
+        m_browser_playlist.activate ();
     }
 }
 

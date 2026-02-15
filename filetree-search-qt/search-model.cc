@@ -20,6 +20,7 @@
 #include "search-model.h"
 
 #include <QMimeData>
+#include <QSet>
 #include <QUrl>
 
 #include <libaudcore/i18n.h>
@@ -226,16 +227,68 @@ QMimeData * SearchModel::mimeData (const QModelIndexList & indexes) const
     m_playlist.select_all (false);
 
     QList<QUrl> urls;
+    QSet<int> seen_entries;  // Track unique entries to avoid duplicates
+    
+    // Recursive function to collect all files in folders
+    std::function<void(const Item *)> collect_files = [&](const Item * folder) {
+        // Get children and sort them
+        Index<Item *> children;
+        const_cast<SimpleHash<Key, Item>&>(folder->children).iterate([&](const Key &, Item & child) {
+            children.append(&child);
+        });
+        
+        children.sort([](Item * const & a, Item * const & b) {
+            return str_compare(a->name, b->name) > 0;
+        });
+        
+        // Process in sorted order
+        for (auto child : children)
+        {
+            if (child->field == SearchField::Title && child->matches.len() > 0)
+            {
+                // This is a file - add each entry if not already seen
+                for (int entry : child->matches)
+                {
+                    if (!seen_entries.contains(entry))
+                    {
+                        seen_entries.insert(entry);
+                        urls.append (QString (m_playlist.entry_filename (entry)));
+                        m_playlist.select_entry (entry, true);
+                    }
+                }
+            }
+            else if (child->children.n_items() > 0)
+            {
+                // This is a subfolder, recurse
+                collect_files(child);
+            }
+        }
+    };
+    
     for (auto & index : indexes)
     {
         const Item * item = item_at_index(index);
         if (!item)
             continue;
 
-        for (int entry : item->matches)
+        // Check if this is a file or a folder
+        if (item->field == SearchField::Title && item->matches.len() > 0)
         {
-            urls.append (QString (m_playlist.entry_filename (entry)));
-            m_playlist.select_entry (entry, true);
+            // This is a single file - add it directly
+            for (int entry : item->matches)
+            {
+                if (!seen_entries.contains(entry))
+                {
+                    seen_entries.insert(entry);
+                    urls.append (QString (m_playlist.entry_filename (entry)));
+                    m_playlist.select_entry (entry, true);
+                }
+            }
+        }
+        else if (item->children.n_items() > 0)
+        {
+            // This is a folder - recursively collect all files
+            collect_files(item);
         }
     }
 
@@ -413,16 +466,6 @@ static int item_compare (const Item * const & a, const Item * const & b)
         return b->parent ? item_compare (a->parent, b->parent) : 1;
     else
         return b->parent ? -1 : 0;
-}
-
-static int item_compare_pass1 (const Item * const & a, const Item * const & b)
-{
-    if (a->matches.len () > b->matches.len ())
-        return -1;
-    if (a->matches.len () < b->matches.len ())
-        return 1;
-
-    return item_compare (a, b);
 }
 
 void SearchModel::do_search (const Index<String> & terms)
